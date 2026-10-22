@@ -1,147 +1,78 @@
 <?php
-require_once __DIR__ . '/auth_check.php';
-requireLogin();
-?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GlowWell Beauty Clinic - Online Booking</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <div class="container" style="max-width: 600px;">
-        <header class="topbar">
-            <div>
-                <h1>GlowWell Beauty Clinic</h1>
-                <p class="subtitle">Welcome, <?= htmlspecialchars($_SESSION['first_name']) ?>!</p>
-            </div>
-            <div class="nav-actions">
-                <?php if (($_SESSION['role_name'] ?? '') === 'Admin'): ?>
-                    <a href="admin.php" class="link-button">Admin Portal →</a>
-                <?php endif; ?>
-                <a href="logout.php" class="link-button danger">Logout</a>
-            </div>
-        </header>
+header('Content-Type: application/json');
+require_once __DIR__ . '/../db.php';
 
-        <div id="feedback" class="alert" style="display:none;"></div>
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['status' => 'error', 'message' => 'Method Not Allowed']);
+    exit;
+}
 
-        <section>
-            <h2>Book Your Appointment</h2>
-            <form id="bookingForm">
-                <input type="hidden" id="customer_id" value="<?= htmlspecialchars($_SESSION['customer_id'] ?? 1) ?>">
+$data = json_decode(file_get_contents('php://input'), true) ?? [];
 
-                <div class="form-group">
-                    <label for="staff_id">Select Specialist</label>
-                    <select id="staff_id" required>
-                        <option value="">Loading specialists...</option>
-                    </select>
-                </div>
+$customerId = (int)($data['customer_id'] ?? 0);
+$staffId = (int)($data['staff_id'] ?? 0);
+$serviceId = (int)($data['service_id'] ?? 0);
+$appointmentDate = trim((string)($data['appointment_date'] ?? ''));
+$startTime = trim((string)($data['start_time'] ?? ''));
 
-                <div class="form-group">
-                    <label for="service_id">Select Treatment</label>
-                    <select id="service_id" required>
-                        <option value="">Loading treatments...</option>
-                    </select>
-                </div>
+if ($customerId <= 0 || $staffId <= 0 || $serviceId <= 0 || $appointmentDate === '' || $startTime === '') {
+    http_response_code(400);
+    echo json_encode(['status' => 'error', 'message' => 'Missing required booking details.']);
+    exit;
+}
 
-                <div class="form-group">
-                    <label for="appointment_date">Preferred Date</label>
-                    <input type="date" id="appointment_date" required>
-                </div>
+try {
+    $serviceCheck = $pdo->prepare('SELECT service_id, duration_min, price FROM services WHERE service_id = :id');
+    $serviceCheck->execute([':id' => $serviceId]);
+    $service = $serviceCheck->fetch();
 
-                <div class="form-group">
-                    <label for="start_time">Time Slot</label>
-                    <input type="time" id="start_time" required>
-                </div>
+    if (!$service) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Selected treatment is invalid.']);
+        exit;
+    }
 
-                <button type="submit" class="btn primary">Confirm & Book Appointment</button>
-            </form>
-        </section>
-    </div>
+    $staffCheck = $pdo->prepare('SELECT staff_id FROM staff WHERE staff_id = :id');
+    $staffCheck->execute([':id' => $staffId]);
+    if (!$staffCheck->fetch()) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Selected specialist is invalid.']);
+        exit;
+    }
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('appointment_date').min = new Date().toISOString().split('T')[0];
-            loadFormOptions();
+    $conflict = $pdo->prepare("SELECT appointment_id FROM appointments WHERE staff_id = :staff_id AND appt_date = :date AND start_time = :time AND status != 'cancelled'");
+    $conflict->execute([
+        ':staff_id' => $staffId,
+        ':date' => $appointmentDate,
+        ':time' => $startTime,
+    ]);
 
-            document.getElementById('bookingForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
+    if ($conflict->fetch()) {
+        http_response_code(409);
+        echo json_encode(['status' => 'error', 'message' => 'This time slot is already booked for the selected specialist.']);
+        exit;
+    }
 
-                const payload = {
-                    customer_id: document.getElementById('customer_id').value,
-                    staff_id: document.getElementById('staff_id').value,
-                    service_id: document.getElementById('service_id').value,
-                    appointment_date: document.getElementById('appointment_date').value,
-                    start_time: document.getElementById('start_time').value,
-                };
+    $endTime = $startTime;
 
-                try {
-                    const res = await fetch('api/appointments.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload),
-                    });
-                    const data = await res.json();
+    $insert = $pdo->prepare('INSERT INTO appointments (customer_id, staff_id, service_id, appt_date, start_time, end_time, status, price_charged, created_at) VALUES (:customer_id, :staff_id, :service_id, :appt_date, :start_time, :end_time, :status, :price_charged, NOW())');
+    $insert->execute([
+        ':customer_id' => $customerId,
+        ':staff_id' => $staffId,
+        ':service_id' => $serviceId,
+        ':appt_date' => $appointmentDate,
+        ':start_time' => $startTime,
+        ':end_time' => $endTime,
+        ':status' => 'pending',
+        ':price_charged' => (float)$service['price'],
+    ]);
 
-                    if (res.ok) {
-                        showAlert(data.message, 'success');
-                        document.getElementById('bookingForm').reset();
-                    } else {
-                        showAlert(data.message, 'error');
-                    }
-                } catch (err) {
-                    showAlert('Server connection error. Please try again.', 'error');
-                }
-            });
-        });
-
-        async function loadFormOptions() {
-            try {
-                const res = await fetch('api/options.php');
-                const data = await res.json();
-
-                if (data.status === 'success') {
-                    const staffSelect = document.getElementById('staff_id');
-                    staffSelect.innerHTML = '<option value="">-- Choose Specialist --</option>';
-                    data.staff.forEach((staff) => {
-                        staffSelect.innerHTML += `<option value="${staff.staff_id}">${escapeHtml(staff.name)} (${escapeHtml(staff.specialization)})</option>`;
-                    });
-
-                    const serviceSelect = document.getElementById('service_id');
-                    serviceSelect.innerHTML = '<option value="">-- Choose Treatment --</option>';
-                    data.services.forEach((service) => {
-                        serviceSelect.innerHTML += `<option value="${service.service_id}">${escapeHtml(service.service_name)} (R${Number(service.price).toFixed(2)} - ${service.duration_minutes} min)</option>`;
-                    });
-                }
-            } catch (err) {
-                document.getElementById('staff_id').innerHTML = '<option value="1">Jane Doe (Skin Specialist)</option>';
-                document.getElementById('service_id').innerHTML = `
-                    <option value="1">HydraFacial Glow (R650.00 - 60 min)</option>
-                    <option value="2">Deep Tissue Massage (R800.00 - 90 min)</option>
-                    <option value="3">Keratin Hair Treatment (R1200.00 - 120 min)</option>
-                `;
-            }
-        }
-
-        function showAlert(msg, type) {
-            const el = document.getElementById('feedback');
-            el.className = `alert alert-${type}`;
-            el.innerText = msg;
-            el.style.display = 'block';
-            setTimeout(() => { el.style.display = 'none'; }, 4000);
-        }
-
-        function escapeHtml(text) {
-            return String(text).replace(/[&<>"']/g, (m) => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            }[m]));
-        }
-    </script>
-</body>
-</html>
+    echo json_encode([
+        'status' => 'success',
+        'message' => 'Appointment booked successfully.',
+    ]);
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'message' => 'Booking failed due to a server error.']);
+}

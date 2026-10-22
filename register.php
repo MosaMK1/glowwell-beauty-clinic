@@ -16,7 +16,7 @@
         <form id="loginForm">
             <div class="form-group">
                 <label for="email">Email Address</label>
-                <input type="email" id="email" required placeholder="admin@glowwell.com">
+                <input type="email" id="email" required placeholder="admin@glowwell.co.za">
             </div>
 
             <div class="form-group">
@@ -33,8 +33,8 @@
 
         <div class="info-box">
             <strong>Default Test Credentials:</strong><br>
-            Admin: <code>admin@glowwell.com</code> / <code>password123</code><br>
-            Customer: <code>alice.smith@example.com</code> / <code>password123</code>
+            Admin: <code>admin@glowwell.co.za</code> / <code>Admin@123</code><br>
+            Customer: <code>thandi@example.com</code> / <code>Customer@123</code>
         </div>
     </div>
 

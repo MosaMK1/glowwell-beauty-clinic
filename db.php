@@ -1,6 +1,6 @@
 <?php
 $host = 'localhost';
-$db = 'glowwell_db';
+$db = 'glowwell';
 $user = 'root';
 $pass = '';
 $charset = 'utf8mb4';

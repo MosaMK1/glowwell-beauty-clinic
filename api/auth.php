@@ -36,10 +36,10 @@ function handleLogin($pdo, $data) {
         return;
     }
 
-    $sql = "SELECT u.user_id, u.email, u.password_hash, r.role_name, c.customer_id, s.staff_id,
-                   COALESCE(c.first_name, s.first_name, 'Admin') AS first_name
+    $sql = "SELECT u.user_id, u.email, u.password_hash, u.role,
+                   c.customer_id, s.staff_id,
+                   COALESCE(c.full_name, s.full_name, 'Admin') AS full_name
             FROM users u
-            JOIN roles r ON u.role_id = r.role_id
             LEFT JOIN customers c ON u.user_id = c.user_id
             LEFT JOIN staff s ON u.user_id = s.user_id
             WHERE u.email = :email";
@@ -53,12 +53,12 @@ function handleLogin($pdo, $data) {
 
         $_SESSION['user_id'] = (int)$user['user_id'];
         $_SESSION['email'] = $user['email'];
-        $_SESSION['role_name'] = $user['role_name'];
-        $_SESSION['first_name'] = $user['first_name'];
+        $_SESSION['role_name'] = ucfirst($user['role']);
+        $_SESSION['first_name'] = $user['full_name'];
         $_SESSION['customer_id'] = $user['customer_id'] ?? null;
         $_SESSION['staff_id'] = $user['staff_id'] ?? null;
 
-        $redirect = ($user['role_name'] === 'Admin') ? 'admin.php' : 'index.php';
+        $redirect = ($_SESSION['role_name'] === 'Admin') ? '../admin.php' : '../index.php';
 
         echo json_encode([
             'status' => 'success',
@@ -97,16 +97,23 @@ function handleRegister($pdo, $data) {
             return;
         }
 
+        $fullName = trim($firstName . ' ' . $lastName);
         $hash = password_hash($password, PASSWORD_BCRYPT);
-        $userStmt = $pdo->prepare('INSERT INTO users (email, password_hash, role_id) VALUES (:email, :hash, 3)');
-        $userStmt->execute([':email' => $email, ':hash' => $hash]);
+
+        $userStmt = $pdo->prepare('INSERT INTO users (full_name, email, password_hash, role) VALUES (:full_name, :email, :hash, :role)');
+        $userStmt->execute([
+            ':full_name' => $fullName,
+            ':email' => $email,
+            ':hash' => $hash,
+            ':role' => 'customer',
+        ]);
         $userId = (int)$pdo->lastInsertId();
 
-        $custStmt = $pdo->prepare('INSERT INTO customers (user_id, first_name, last_name, phone) VALUES (:user_id, :first_name, :last_name, :phone)');
-        $custStmt->execute([
+        $customerStmt = $pdo->prepare('INSERT INTO customers (user_id, full_name, email, phone) VALUES (:user_id, :full_name, :email, :phone)');
+        $customerStmt->execute([
             ':user_id' => $userId,
-            ':first_name' => $firstName,
-            ':last_name' => $lastName,
+            ':full_name' => $fullName,
+            ':email' => $email,
             ':phone' => $phone,
         ]);
 

@@ -1,6 +1,4 @@
 <?php
-session_start();
-
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
         'lifetime' => 86400,
@@ -20,13 +18,14 @@ function requireLogin() {
 
 function requireRole($allowedRoles = []) {
     requireLogin();
-    if (!in_array($_SESSION['role_name'] ?? '', $allowedRoles, true)) {
+    $role = $_SESSION['role_name'] ?? '';
+    if (!in_array($role, $allowedRoles, true)) {
         http_response_code(403);
         echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>403 Forbidden</title><link rel="stylesheet" href="style.css"></head><body>';
-        echo '<div class="container" style="max-width: 500px; margin-top: 50px; text-align: center;">';
+        echo '<div class="container" style="max-width:500px; margin-top:50px; text-align:center;">';
         echo '<h2>403 - Access Denied</h2>';
-        echo '<p>You do not have permission to access this page.</p>';
-        echo '<a href="index.php" class="btn primary">Return to dashboard</a>';
+        echo '<p>You do not have permission to access the Administrator Portal.</p>';
+        echo '<a href="index.php" class="btn primary">Return to Dashboard</a>';
         echo '</div></body></html>';
         exit;
     }
